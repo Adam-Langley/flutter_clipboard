@@ -225,26 +225,95 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         return nil
     }
     
+    /// The image on the clipboard, as PNG bytes.
+    ///
+    /// The clipboard describes an image in two quite different ways, and they cannot be
+    /// handled the same:
+    ///
+    /// - copying from inside a graphics app puts the bitmap itself on the pasteboard, under
+    ///   `public.png` or `public.tiff`;
+    /// - copying a file in Finder puts only a reference to that file.
+    ///
+    /// The file reference is tried first, because when there is one it names the picture the
+    /// user actually chose, and it is read here rather than left to NSImage. Handing a file
+    /// reference to `readObjects(forClasses: [NSImage.self])` inside an App Sandbox does not
+    /// fail - the sandbox refuses to open the path, and NSImage answers with the file's ICON
+    /// instead. That is a perfectly valid image of a document, so nothing anywhere reports an
+    /// error, and a picture of a page with "PNG" written on it is pasted in place of the
+    /// photograph that was copied.
+    ///
+    /// Every step falls through to the next rather than giving up, so a file that genuinely
+    /// cannot be read still ends up using whatever bitmap the pasteboard also carries.
     private func getImageBytesFromClipboard() -> [Int]? {
         let pasteboard = NSPasteboard.general
-        
-        // Check if clipboard has image data
-        guard pasteboard.canReadObject(forClasses: [NSImage.self], options: nil) else {
+
+        if let bytes = imageBytesFromReferencedFile(pasteboard) {
+            return bytes
+        }
+
+        // A bitmap already on the pasteboard. No file system involved, so the sandbox has no
+        // say in it - this is the path that has always worked.
+        for type in [NSPasteboard.PasteboardType.png, NSPasteboard.PasteboardType.tiff] {
+            if let data = pasteboard.data(forType: type), let png = pngData(from: data) {
+                return png.map { Int($0) }
+            }
+        }
+
+        // Anything else AppKit can make sense of: the older flavours some apps still write,
+        // and images carried inside a PDF or an attachment.
+        guard let image = pasteboard.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage,
+              let tiffData = image.tiffRepresentation,
+              let png = pngData(from: tiffData) else {
             return nil
         }
-        
-        guard let image = pasteboard.readObjects(forClasses: [NSImage.self], options: nil)?.first as? NSImage else {
+
+        return png.map { Int($0) }
+    }
+
+    /// The contents of an image file the pasteboard refers to, or nil when it refers to none
+    /// that can be read.
+    ///
+    /// Restricted to file URLs whose contents are images, so copying a document or a folder
+    /// falls through to the bitmap flavours rather than being read pointlessly.
+    private func imageBytesFromReferencedFile(_ pasteboard: NSPasteboard) -> [Int]? {
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: ["public.image"],
+        ]
+
+        guard let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] else {
             return nil
         }
-        
-        // Convert NSImage to PNG data
-        guard let tiffData = image.tiffRepresentation,
-              let bitmapImage = NSBitmapImageRep(data: tiffData),
-              let pngData = bitmapImage.representation(using: .png, properties: [:]) else {
+
+        for url in urls {
+            // A file URL that arrives by paste carries a sandbox extension, but it only
+            // grants access once it has been claimed - without this the read below fails for
+            // every file outside the container. Balanced whether or not the read succeeds.
+            let isScoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if isScoped {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            if let data = try? Data(contentsOf: url), let png = pngData(from: data) {
+                return png.map { Int($0) }
+            }
+        }
+
+        return nil
+    }
+
+    /// Re-encodes anything AppKit can decode as PNG, the one format the Dart side is promised.
+    ///
+    /// Answers nil for data that is not an image at all, which is what makes it safe to use
+    /// as the test of whether a referenced file was worth reading.
+    private func pngData(from data: Data) -> Data? {
+        guard let bitmapImage = NSBitmapImageRep(data: data) else {
             return nil
         }
-        
-        return Array(pngData.map { Int($0) })
+
+        return bitmapImage.representation(using: .png, properties: [:])
     }
     
     deinit {
