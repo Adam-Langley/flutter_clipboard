@@ -180,6 +180,14 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 result(["imageBytes": NSNull()])
             }
             
+        case "hasImage":
+            // UIPasteboard's has* properties report which representations are
+            // present without reading them, so they do not raise the paste
+            // banner that reading `image` does. That makes it safe to ask on
+            // open, which is what lets a caller decide whether to offer a paste
+            // affordance at all rather than offering one blindly.
+            result(UIPasteboard.general.hasImages)
+
         case "getContentType":
             // Don't access clipboard automatically - only check if formats are available
             // This avoids triggering iOS clipboard banner on startup

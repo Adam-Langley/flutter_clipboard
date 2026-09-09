@@ -482,6 +482,23 @@ class FlutterClipboard {
     return pasteImageWebImpl();
   }
 
+  /// Whether the clipboard is currently holding an image.
+  ///
+  /// Answered from the clipboard's list of available representations, not by
+  /// reading it, so on iOS 16 and later this does NOT raise the system paste
+  /// banner the way [pasteImage] does. That makes it safe to call on open, to
+  /// decide whether a paste affordance is worth offering at all.
+  ///
+  /// Returns false when the platform cannot say, so a caller can treat a false
+  /// as "do not offer" without having to special-case an unknown.
+  static Future<bool> hasImage() async {
+    try {
+      return await _channel.invokeMethod<bool>('hasImage') ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Get clipboard content type
   /// Note: This method no longer accesses the clipboard automatically to avoid permission prompts.
   /// Call paste() or pasteRichText() first to access clipboard content.

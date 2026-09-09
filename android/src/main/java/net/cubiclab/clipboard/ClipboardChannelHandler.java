@@ -1,6 +1,7 @@
 package net.cubiclab.clipboard;
 
 import android.content.ClipData;
+import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.ContentValues;
@@ -55,6 +56,9 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
                 break;
             case "pasteImage":
                 handlePasteImage(call, result);
+                break;
+            case "hasImage":
+                handleHasImage(call, result);
                 break;
             case "getContentType":
                 handleGetContentType(call, result);
@@ -288,6 +292,32 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
             result.success(resultMap);
         } catch (Exception e) {
             result.error("PASTE_IMAGE_ERROR", e.getMessage(), null);
+        }
+    }
+
+    /**
+     * Whether the clipboard is holding an image, answered from the clip's
+     * description rather than by reading the clip itself. Android does not
+     * prompt for clipboard reads the way iOS does, but the description is
+     * cheaper and is the same question.
+     */
+    private void handleHasImage(MethodCall call, MethodChannel.Result result) {
+        try {
+            ClipDescription description = clipboardManager.getPrimaryClipDescription();
+            if (description == null) {
+                result.success(false);
+                return;
+            }
+            for (int i = 0; i < description.getMimeTypeCount(); i++) {
+                String mimeType = description.getMimeType(i);
+                if (mimeType != null && mimeType.startsWith("image/")) {
+                    result.success(true);
+                    return;
+                }
+            }
+            result.success(false);
+        } catch (Exception e) {
+            result.success(false);
         }
     }
 

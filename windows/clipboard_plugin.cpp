@@ -112,6 +112,8 @@ class ClipboardPluginImpl {
       HandlePasteImage(std::move(result));
     } else if (method == "getContentType") {
       HandleGetContentType(std::move(result));
+    } else if (method == "hasImage") {
+      HandleHasImage(std::move(result));
     } else if (method == "hasData") {
       HandleHasData(std::move(result));
     } else if (method == "clear") {
@@ -812,6 +814,14 @@ class ClipboardPluginImpl {
     } else {
       result->Error("PASTE_IMAGE_ERROR", "Failed to convert image to PNG format");
     }
+  }
+
+  // Whether the clipboard holds a bitmap, asked of the format list rather than
+  // by opening and reading the clipboard's contents.
+  void HandleHasImage(std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {
+    bool has = IsClipboardFormatAvailable(CF_DIB) || IsClipboardFormatAvailable(CF_DIBV5) ||
+               IsClipboardFormatAvailable(CF_BITMAP);
+    result->Success(EncodableValue(has));
   }
 
   void HandleGetContentType(std::unique_ptr<flutter::MethodResult<EncodableValue>> result) {

@@ -141,6 +141,14 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 result(["imageBytes": NSNull()])
             }
             
+        case "hasImage":
+            // Asks which representations are on the pasteboard without reading
+            // any of them. Includes a referenced image file, which is what a
+            // Finder copy puts there.
+            let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, .fileURL]
+            result(pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+                   || pasteboard.availableType(from: imageTypes) != nil)
+
         case "getContentType":
             // Don't access clipboard automatically
             result("unknown")
