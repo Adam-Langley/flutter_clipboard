@@ -57,6 +57,9 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
             case "pasteImage":
                 handlePasteImage(call, result);
                 break;
+            case "pasteImages":
+                handlePasteImages(call, result);
+                break;
             case "hasImage":
                 handleHasImage(call, result);
                 break;
@@ -292,6 +295,31 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
             result.success(resultMap);
         } catch (Exception e) {
             result.error("PASTE_IMAGE_ERROR", e.getMessage(), null);
+        }
+    }
+
+    /**
+     * Every image the clip is carrying, rather than only the first. A share or
+     * a multi-select puts one ClipData.Item per picture, and handlePasteImage
+     * only ever looks at item zero.
+     */
+    private void handlePasteImages(MethodCall call, MethodChannel.Result result) {
+        try {
+            List<List<Integer>> images = new ArrayList<>();
+            ClipData clipData = clipboardManager.getPrimaryClip();
+            if (clipData != null) {
+                for (int i = 0; i < clipData.getItemCount(); i++) {
+                    List<Integer> bytes = getImageFromClipboard(clipData.getItemAt(i));
+                    if (bytes != null && !bytes.isEmpty()) {
+                        images.add(bytes);
+                    }
+                }
+            }
+            Map<String, Object> resultMap = new HashMap<>();
+            resultMap.put("images", images);
+            result.success(resultMap);
+        } catch (Exception e) {
+            result.error("PASTE_IMAGES_ERROR", e.getMessage(), null);
         }
     }
 

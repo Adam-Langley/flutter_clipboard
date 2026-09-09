@@ -482,6 +482,41 @@ class FlutterClipboard {
     return pasteImageWebImpl();
   }
 
+  /// Every image the clipboard is holding, in the order it carries them.
+  ///
+  /// A clipboard can hold more than one picture at a time — a multi-select in
+  /// Photos, or several files copied in Finder — and [pasteImage] only ever
+  /// answers with the first.
+  ///
+  /// Falls back to [pasteImage] where the platform has no notion of more than
+  /// one, which includes Windows, whose clipboard holds a single bitmap. So
+  /// this never returns fewer images than [pasteImage] would.
+  ///
+  /// Reads the clipboard, so on iOS 16 and later this raises the system paste
+  /// banner. Use [hasImage] to decide whether it is worth asking.
+  static Future<List<Uint8List>> pasteImages() async {
+    try {
+      final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('pasteImages');
+      final images = result?['images'];
+      if (images is List) {
+        return images
+            .whereType<List<dynamic>>()
+            .map((bytes) => Uint8List.fromList(bytes.cast<int>()))
+            .where((bytes) => bytes.isNotEmpty)
+            .toList();
+      }
+    } on MissingPluginException {
+      // Platform has no multi-image notion; the single-image path is the answer.
+    } on PlatformException {
+      // Same, for platforms that answer notImplemented rather than throwing.
+    } catch (_) {
+      return const [];
+    }
+
+    final single = await pasteImage();
+    return single == null || single.isEmpty ? const [] : [single];
+  }
+
   /// Whether the clipboard is currently holding an image.
   ///
   /// Answered from the clipboard's list of available representations, not by

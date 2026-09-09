@@ -180,6 +180,23 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 result(["imageBytes": NSNull()])
             }
             
+        case "pasteImages":
+            // UIPasteboard can hold several items at once - a multi-select in
+            // Photos puts one per picture - and `image` only ever answers with
+            // the first. Reading them all lets a caller offer the whole set.
+            var all: [[Int]] = []
+            for image in UIPasteboard.general.images ?? [] {
+                if let data = image.pngData() {
+                    all.append(Array(data.map { Int($0) }))
+                }
+            }
+            // Falls back to the single-image path, which also understands the
+            // representations `images` does not surface.
+            if all.isEmpty, let single = getImageBytesFromClipboard() {
+                all.append(single)
+            }
+            result(["images": all])
+
         case "hasImage":
             // UIPasteboard's has* properties report which representations are
             // present without reading them, so they do not raise the paste

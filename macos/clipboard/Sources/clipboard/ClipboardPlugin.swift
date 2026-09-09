@@ -141,6 +141,9 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 result(["imageBytes": NSNull()])
             }
             
+        case "pasteImages":
+            result(["images": getAllImageBytesFromClipboard()])
+
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
             // any of them. Includes a referenced image file, which is what a
@@ -252,6 +255,40 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     ///
     /// Every step falls through to the next rather than giving up, so a file that genuinely
     /// cannot be read still ends up using whatever bitmap the pasteboard also carries.
+    /// Every image the pasteboard is carrying, rather than only the first.
+    ///
+    /// Referenced files come first and are taken as a set - a multi-file copy in
+    /// Finder is the usual way several pictures arrive at once. If none of them
+    /// can be read, the single-image path is used, so this never returns less
+    /// than `getImageBytesFromClipboard` would.
+    private func getAllImageBytesFromClipboard() -> [[Int]] {
+        var all: [[Int]] = []
+
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: ["public.image"],
+        ]
+        if let urls = NSPasteboard.general.readObjects(forClasses: [NSURL.self], options: options) as? [URL] {
+            for url in urls {
+                let isScoped = url.startAccessingSecurityScopedResource()
+                defer {
+                    if isScoped {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                if let data = try? Data(contentsOf: url), let png = pngData(from: data) {
+                    all.append(png.map { Int($0) })
+                }
+            }
+        }
+
+        if all.isEmpty, let single = getImageBytesFromClipboard() {
+            all.append(single)
+        }
+
+        return all
+    }
+
     private func getImageBytesFromClipboard() -> [Int]? {
         let pasteboard = NSPasteboard.general
 
