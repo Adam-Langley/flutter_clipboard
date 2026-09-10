@@ -156,28 +156,31 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
-            // any of them.
+            // any of them, and does it off the main thread.
             //
-            // availableType is a lookup against the pasteboard's type list and
-            // costs nothing. canReadObject is not the same kind of question: it
-            // asks AppKit whether an NSImage could actually be built, which
-            // inspects the data and measured 81ms of held UI thread on a single
-            // photograph. It is kept only as the fallback for a pasteboard whose
-            // types name nothing recognisable, and it runs off the main thread.
-            let imageTypes: [NSPasteboard.PasteboardType] = [
-                .png, .tiff, .fileURL,
-                NSPasteboard.PasteboardType("public.jpeg"),
-                NSPasteboard.PasteboardType("public.heic"),
-                NSPasteboard.PasteboardType("com.compuserve.gif"),
-                NSPasteboard.PasteboardType("com.microsoft.bmp"),
-            ]
-            if pasteboard.availableType(from: imageTypes) != nil {
-                result(true)
-            } else {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    let readable = pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
-                    DispatchQueue.main.async { result(readable) }
-                }
+            // Even the cheap question is not free: on a pasteboard holding a
+            // photograph it measured about 50ms, and this is the call made as
+            // the attach dialog opens, precisely so that nothing expensive
+            // happens then. Flutter runs macOS with the UI and platform threads
+            // merged, so 50ms spent here is 50ms of held interface.
+            //
+            // availableType is a lookup against the pasteboard's type list.
+            // canReadObject is a different question — it asks AppKit whether an
+            // NSImage could be built, which inspects the data — so it is kept
+            // only as the fallback for types that name nothing recognisable.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let imageTypes: [NSPasteboard.PasteboardType] = [
+                    .png, .tiff, .fileURL,
+                    NSPasteboard.PasteboardType("public.jpeg"),
+                    NSPasteboard.PasteboardType("public.heic"),
+                    NSPasteboard.PasteboardType("com.compuserve.gif"),
+                    NSPasteboard.PasteboardType("com.microsoft.bmp"),
+                ]
+                let pasteboard = NSPasteboard.general
+                let holds = pasteboard.availableType(from: imageTypes) != nil
+                    || pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+
+                DispatchQueue.main.async { result(holds) }
             }
 
         case "getContentType":
