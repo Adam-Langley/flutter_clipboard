@@ -156,11 +156,29 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
 
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
-            // any of them. Includes a referenced image file, which is what a
-            // Finder copy puts there.
-            let imageTypes: [NSPasteboard.PasteboardType] = [.png, .tiff, .fileURL]
-            result(pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
-                   || pasteboard.availableType(from: imageTypes) != nil)
+            // any of them.
+            //
+            // availableType is a lookup against the pasteboard's type list and
+            // costs nothing. canReadObject is not the same kind of question: it
+            // asks AppKit whether an NSImage could actually be built, which
+            // inspects the data and measured 81ms of held UI thread on a single
+            // photograph. It is kept only as the fallback for a pasteboard whose
+            // types name nothing recognisable, and it runs off the main thread.
+            let imageTypes: [NSPasteboard.PasteboardType] = [
+                .png, .tiff, .fileURL,
+                NSPasteboard.PasteboardType("public.jpeg"),
+                NSPasteboard.PasteboardType("public.heic"),
+                NSPasteboard.PasteboardType("com.compuserve.gif"),
+                NSPasteboard.PasteboardType("com.microsoft.bmp"),
+            ]
+            if pasteboard.availableType(from: imageTypes) != nil {
+                result(true)
+            } else {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let readable = pasteboard.canReadObject(forClasses: [NSImage.self], options: nil)
+                    DispatchQueue.main.async { result(readable) }
+                }
+            }
 
         case "getContentType":
             // Don't access clipboard automatically
