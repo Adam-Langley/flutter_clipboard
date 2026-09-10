@@ -223,6 +223,14 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 DispatchQueue.main.async { result(["images": all]) }
             }
 
+        case "changeCount":
+            // Identifies the pasteboard's current contents. iOS grants read
+            // access per generation: once the user has answered the paste
+            // banner for this one, reading it again does not ask them twice.
+            // A caller that remembers the count it was granted for can tell
+            // whether a read would prompt.
+            result(UIPasteboard.general.changeCount)
+
         case "hasImage":
             // UIPasteboard's has* properties report which representations are
             // present without reading them, so they do not raise the paste

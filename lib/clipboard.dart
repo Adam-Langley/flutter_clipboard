@@ -541,6 +541,24 @@ class FlutterClipboard {
     return single == null || single.isEmpty ? const [] : [ClipboardImageData(bytes: single)];
   }
 
+  /// A number identifying the clipboard's current contents, which changes
+  /// every time something new is put on it.
+  ///
+  /// Null where the platform does not keep one. Prompts for nothing: it says
+  /// which generation the clipboard is on, not what is in it.
+  ///
+  /// iOS grants read access per generation — once the user has answered the
+  /// paste banner for this one, reading it again does not ask them twice — so a
+  /// caller that remembers the count it was granted for can tell whether
+  /// reading would prompt.
+  static Future<int?> changeCount() async {
+    try {
+      return await _channel.invokeMethod<int>('changeCount');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// Whether the clipboard is currently holding an image.
   ///
   /// Answered from the clipboard's list of available representations, not by

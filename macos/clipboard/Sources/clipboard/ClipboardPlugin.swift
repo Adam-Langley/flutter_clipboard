@@ -154,6 +154,9 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                 DispatchQueue.main.async { result(["images": images]) }
             }
 
+        case "changeCount":
+            result(NSPasteboard.general.changeCount)
+
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
             // any of them, and does it off the main thread.
