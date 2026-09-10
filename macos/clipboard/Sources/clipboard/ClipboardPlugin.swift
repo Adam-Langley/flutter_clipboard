@@ -142,7 +142,17 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             }
             
         case "pasteImages":
-            result(["images": getAllImagesFromClipboard()])
+            // The pasteboard itself is read here, on the thread AppKit expects,
+            // but decoding and re-encoding each image is the expensive part and
+            // is done off it. Flutter runs macOS with the UI and platform
+            // threads merged, so work left on this thread does not merely take
+            // time — it freezes the interface for as long as it runs. A single
+            // photograph measured a 262ms stall before this.
+            let sources = collectImageSources()
+            DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+                let images = self?.encodeImages(sources) ?? []
+                DispatchQueue.main.async { result(["images": images]) }
+            }
 
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
@@ -283,6 +293,77 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// The bytes are handed over as PNG whatever they were, so the source type
     /// is reported alongside them rather than left to be inferred from bytes
     /// that no longer carry it.
+    /// Where an image on the pasteboard is coming from. Gathered on the main
+    /// thread, converted off it.
+    private enum ImageSource {
+        case file(URL)
+        case data(Data, String?)
+    }
+
+    /// Names what the pasteboard is holding without converting any of it, which
+    /// is the cheap half and the half that has to happen on the main thread.
+    private func collectImageSources() -> [ImageSource] {
+        let pasteboard = NSPasteboard.general
+        var sources: [ImageSource] = []
+
+        let options: [NSPasteboard.ReadingOptionKey: Any] = [
+            .urlReadingFileURLsOnly: true,
+            .urlReadingContentsConformToTypes: ["public.image"],
+        ]
+        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: options) as? [URL] {
+            sources.append(contentsOf: urls.map { ImageSource.file($0) })
+        }
+
+        if sources.isEmpty {
+            for type in [NSPasteboard.PasteboardType.png, NSPasteboard.PasteboardType.tiff] {
+                if let data = pasteboard.data(forType: type) {
+                    sources.append(.data(data, ClipboardPlugin.imageTypeName(from: type.rawValue)))
+                    break
+                }
+            }
+        }
+
+        return sources
+    }
+
+    /// Reads and re-encodes each source. Safe to call off the main thread: it
+    /// touches no pasteboard, only the bytes and URLs already gathered from one.
+    private func encodeImages(_ sources: [ImageSource]) -> [[String: Any]] {
+        var all: [[String: Any]] = []
+
+        for source in sources {
+            switch source {
+            case .file(let url):
+                // A security-scoped bookmark is held against the URL, not the
+                // thread, so claiming it here is fine.
+                let isScoped = url.startAccessingSecurityScopedResource()
+                defer {
+                    if isScoped {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                if let data = try? Data(contentsOf: url), let png = pngData(from: data) {
+                    var entry: [String: Any] = ["bytes": png.map { Int($0) }]
+                    if let name = ClipboardPlugin.imageTypeName(from: url.pathExtension) {
+                        entry["type"] = name
+                    }
+                    all.append(entry)
+                }
+
+            case .data(let data, let type):
+                if let png = pngData(from: data) {
+                    var entry: [String: Any] = ["bytes": png.map { Int($0) }]
+                    if let type = type {
+                        entry["type"] = type
+                    }
+                    all.append(entry)
+                }
+            }
+        }
+
+        return all
+    }
+
     private func getAllImagesFromClipboard() -> [[String: Any]] {
         var all: [[String: Any]] = []
 

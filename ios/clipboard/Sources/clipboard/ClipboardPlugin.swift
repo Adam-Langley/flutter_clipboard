@@ -188,30 +188,40 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // The bytes are handed over as PNG whatever they arrived as, so the
             // source type is reported separately: it is read from the item's
             // advertised representations, which still name the original.
+            //
+            // The pasteboard is read here, but each image is re-encoded to PNG
+            // off this thread. Flutter can run with the UI and platform threads
+            // merged, and work left on this one freezes the interface for as
+            // long as it takes rather than merely taking that long.
             let pasteboard = UIPasteboard.general
             let itemTypes = pasteboard.types(forItemSet: nil) ?? []
-            var all: [[String: Any]] = []
+            let images = pasteboard.images ?? []
+            let fallback = images.isEmpty ? pasteboard.image : nil
 
-            for (index, image) in (pasteboard.images ?? []).enumerated() {
-                guard let data = image.pngData() else { continue }
-                var entry: [String: Any] = ["bytes": Array(data.map { Int($0) })]
-                if index < itemTypes.count, let name = ClipboardPlugin.imageTypeName(from: itemTypes[index]) {
-                    entry["type"] = name
+            DispatchQueue.global(qos: .userInitiated).async {
+                var all: [[String: Any]] = []
+
+                for (index, image) in images.enumerated() {
+                    guard let data = image.pngData() else { continue }
+                    var entry: [String: Any] = ["bytes": Array(data.map { Int($0) })]
+                    if index < itemTypes.count, let name = ClipboardPlugin.imageTypeName(from: itemTypes[index]) {
+                        entry["type"] = name
+                    }
+                    all.append(entry)
                 }
-                all.append(entry)
-            }
 
-            // Falls back to the single-image path, which also understands the
-            // representations `images` does not surface.
-            if all.isEmpty, let single = getImageBytesFromClipboard() {
-                var entry: [String: Any] = ["bytes": single]
-                if let name = ClipboardPlugin.imageTypeName(from: itemTypes.first ?? []) {
-                    entry["type"] = name
+                // Falls back to whatever single representation the pasteboard
+                // would give, for the cases `images` does not surface.
+                if all.isEmpty, let data = fallback?.pngData() {
+                    var entry: [String: Any] = ["bytes": Array(data.map { Int($0) })]
+                    if let name = ClipboardPlugin.imageTypeName(from: itemTypes.first ?? []) {
+                        entry["type"] = name
+                    }
+                    all.append(entry)
                 }
-                all.append(entry)
-            }
 
-            result(["images": all])
+                DispatchQueue.main.async { result(["images": all]) }
+            }
 
         case "hasImage":
             // UIPasteboard's has* properties report which representations are
