@@ -142,7 +142,7 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             }
             
         case "pasteImages":
-            result(["images": getAllImageBytesFromClipboard()])
+            result(["images": getAllImagesFromClipboard()])
 
         case "hasImage":
             // Asks which representations are on the pasteboard without reading
@@ -261,8 +261,30 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
     /// Finder is the usual way several pictures arrive at once. If none of them
     /// can be read, the single-image path is used, so this never returns less
     /// than `getImageBytesFromClipboard` would.
-    private func getAllImageBytesFromClipboard() -> [[Int]] {
-        var all: [[Int]] = []
+    /// How an image type is named to the user, from a file extension or a
+    /// pasteboard type. Nil when it cannot be told, rather than guessed at.
+    static func imageTypeName(from identifier: String?) -> String? {
+        guard let identifier = identifier?.lowercased() else { return nil }
+
+        switch identifier {
+        case "jpg", "jpeg", "public.jpeg": return "JPG"
+        case "png", "public.png": return "PNG"
+        case "heic", "heif", "public.heic", "public.heif": return "HEIC"
+        case "gif", "com.compuserve.gif": return "GIF"
+        case "tif", "tiff", "public.tiff": return "TIFF"
+        case "bmp", "com.microsoft.bmp": return "BMP"
+        case "webp", "org.webmproject.webp": return "WEBP"
+        default: return nil
+        }
+    }
+
+    /// Every image on the pasteboard, each with the type it arrived as.
+    ///
+    /// The bytes are handed over as PNG whatever they were, so the source type
+    /// is reported alongside them rather than left to be inferred from bytes
+    /// that no longer carry it.
+    private func getAllImagesFromClipboard() -> [[String: Any]] {
+        var all: [[String: Any]] = []
 
         let options: [NSPasteboard.ReadingOptionKey: Any] = [
             .urlReadingFileURLsOnly: true,
@@ -277,13 +299,23 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
                     }
                 }
                 if let data = try? Data(contentsOf: url), let png = pngData(from: data) {
-                    all.append(png.map { Int($0) })
+                    var entry: [String: Any] = ["bytes": png.map { Int($0) }]
+                    if let name = ClipboardPlugin.imageTypeName(from: url.pathExtension) {
+                        entry["type"] = name
+                    }
+                    all.append(entry)
                 }
             }
         }
 
         if all.isEmpty, let single = getImageBytesFromClipboard() {
-            all.append(single)
+            var entry: [String: Any] = ["bytes": single]
+            let pasteboard = NSPasteboard.general
+            let advertised = pasteboard.types?.map { $0.rawValue } ?? []
+            if let name = advertised.compactMap({ ClipboardPlugin.imageTypeName(from: $0) }).first {
+                entry["type"] = name
+            }
+            all.append(entry)
         }
 
         return all

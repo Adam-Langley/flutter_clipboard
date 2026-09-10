@@ -305,14 +305,24 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
      */
     private void handlePasteImages(MethodCall call, MethodChannel.Result result) {
         try {
-            List<List<Integer>> images = new ArrayList<>();
+            List<Map<String, Object>> images = new ArrayList<>();
             ClipData clipData = clipboardManager.getPrimaryClip();
             if (clipData != null) {
                 for (int i = 0; i < clipData.getItemCount(); i++) {
-                    List<Integer> bytes = getImageFromClipboard(clipData.getItemAt(i));
-                    if (bytes != null && !bytes.isEmpty()) {
-                        images.add(bytes);
+                    ClipData.Item item = clipData.getItemAt(i);
+                    List<Integer> bytes = getImageFromClipboard(item);
+                    if (bytes == null || bytes.isEmpty()) {
+                        continue;
                     }
+                    Map<String, Object> entry = new HashMap<>();
+                    entry.put("bytes", bytes);
+                    // The bytes are handed over as PNG whatever they were, so
+                    // the source type comes from the item's own mime type.
+                    String name = imageTypeName(item);
+                    if (name != null) {
+                        entry.put("type", name);
+                    }
+                    images.add(entry);
                 }
             }
             Map<String, Object> resultMap = new HashMap<>();
@@ -320,6 +330,44 @@ public class ClipboardChannelHandler implements MethodChannel.MethodCallHandler,
             result.success(resultMap);
         } catch (Exception e) {
             result.error("PASTE_IMAGES_ERROR", e.getMessage(), null);
+        }
+    }
+
+    /**
+     * How an image type is named to the user, from the item's mime type. Null
+     * when it cannot be told, rather than guessed at.
+     */
+    private String imageTypeName(ClipData.Item item) {
+        try {
+            if (item.getUri() == null) {
+                return null;
+            }
+            String mimeType = context.getContentResolver().getType(item.getUri());
+            if (mimeType == null) {
+                return null;
+            }
+            switch (mimeType.toLowerCase()) {
+                case "image/jpeg":
+                case "image/jpg":
+                    return "JPG";
+                case "image/png":
+                    return "PNG";
+                case "image/heic":
+                case "image/heif":
+                    return "HEIC";
+                case "image/gif":
+                    return "GIF";
+                case "image/tiff":
+                    return "TIFF";
+                case "image/bmp":
+                    return "BMP";
+                case "image/webp":
+                    return "WEBP";
+                default:
+                    return null;
+            }
+        } catch (Exception e) {
+            return null;
         }
     }
 

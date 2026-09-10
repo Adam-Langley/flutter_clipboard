@@ -184,17 +184,33 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
             // UIPasteboard can hold several items at once - a multi-select in
             // Photos puts one per picture - and `image` only ever answers with
             // the first. Reading them all lets a caller offer the whole set.
-            var all: [[Int]] = []
-            for image in UIPasteboard.general.images ?? [] {
-                if let data = image.pngData() {
-                    all.append(Array(data.map { Int($0) }))
+            //
+            // The bytes are handed over as PNG whatever they arrived as, so the
+            // source type is reported separately: it is read from the item's
+            // advertised representations, which still name the original.
+            let pasteboard = UIPasteboard.general
+            let itemTypes = pasteboard.types(forItemSet: nil) ?? []
+            var all: [[String: Any]] = []
+
+            for (index, image) in (pasteboard.images ?? []).enumerated() {
+                guard let data = image.pngData() else { continue }
+                var entry: [String: Any] = ["bytes": Array(data.map { Int($0) })]
+                if index < itemTypes.count, let name = ClipboardPlugin.imageTypeName(from: itemTypes[index]) {
+                    entry["type"] = name
                 }
+                all.append(entry)
             }
+
             // Falls back to the single-image path, which also understands the
             // representations `images` does not surface.
             if all.isEmpty, let single = getImageBytesFromClipboard() {
-                all.append(single)
+                var entry: [String: Any] = ["bytes": single]
+                if let name = ClipboardPlugin.imageTypeName(from: itemTypes.first ?? []) {
+                    entry["type"] = name
+                }
+                all.append(entry)
             }
+
             result(["images": all])
 
         case "hasImage":
@@ -288,6 +304,27 @@ public class ClipboardPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
         return nil
     }
     
+    /// How an image type is named to the user, from the representations the
+    /// pasteboard advertises for one item. Nil when none of them is an image
+    /// type this knows, which is treated as "cannot say" rather than guessed at.
+    static func imageTypeName(from types: [String]) -> String? {
+        let names: [(String, String)] = [
+            ("public.jpeg", "JPG"),
+            ("public.png", "PNG"),
+            ("public.heic", "HEIC"),
+            ("public.heif", "HEIC"),
+            ("com.compuserve.gif", "GIF"),
+            ("public.tiff", "TIFF"),
+            ("com.microsoft.bmp", "BMP"),
+            ("org.webmproject.webp", "WEBP"),
+        ]
+        let lowered = types.map { $0.lowercased() }
+        for (uti, name) in names where lowered.contains(uti) {
+            return name
+        }
+        return nil
+    }
+
     private func getImageBytesFromClipboard() -> [Int]? {
         guard let image = UIPasteboard.general.image else {
             return nil

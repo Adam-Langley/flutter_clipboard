@@ -87,6 +87,19 @@ class EnhancedClipboardData {
   bool get hasFiles => filePaths?.isNotEmpty == true;
 }
 
+/// One image read from the clipboard.
+class ClipboardImageData {
+  /// Always PNG: the platforms re-encode on the way out.
+  final Uint8List bytes;
+
+  /// What the image was before that re-encoding — 'JPG', 'PNG', 'HEIC' and so
+  /// on. Null where the platform would not say, which is not the same as the
+  /// image having no type.
+  final String? type;
+
+  const ClipboardImageData({required this.bytes, this.type});
+}
+
 /// Content type enumeration
 enum ClipboardContentType { text, html, image, files, mixed, empty, unknown }
 
@@ -482,6 +495,12 @@ class FlutterClipboard {
     return pasteImageWebImpl();
   }
 
+  /// One image from the clipboard, and the type it arrived as.
+  ///
+  /// [bytes] are always PNG — every platform re-encodes on the way out — so
+  /// [type] is the only record of what was actually copied. Null where the
+  /// platform would not say.
+  ///
   /// Every image the clipboard is holding, in the order it carries them.
   ///
   /// A clipboard can hold more than one picture at a time — a multi-select in
@@ -494,16 +513,21 @@ class FlutterClipboard {
   ///
   /// Reads the clipboard, so on iOS 16 and later this raises the system paste
   /// banner. Use [hasImage] to decide whether it is worth asking.
-  static Future<List<Uint8List>> pasteImages() async {
+  static Future<List<ClipboardImageData>> pasteImages() async {
     try {
       final result = await _channel.invokeMethod<Map<dynamic, dynamic>>('pasteImages');
       final images = result?['images'];
       if (images is List) {
-        return images
-            .whereType<List<dynamic>>()
-            .map((bytes) => Uint8List.fromList(bytes.cast<int>()))
-            .where((bytes) => bytes.isNotEmpty)
-            .toList();
+        final parsed = <ClipboardImageData>[];
+        for (final entry in images) {
+          if (entry is! Map) continue;
+          final bytes = entry['bytes'];
+          if (bytes is! List) continue;
+          final data = Uint8List.fromList(bytes.cast<int>());
+          if (data.isEmpty) continue;
+          parsed.add(ClipboardImageData(bytes: data, type: entry['type'] as String?));
+        }
+        return parsed;
       }
     } on MissingPluginException {
       // Platform has no multi-image notion; the single-image path is the answer.
@@ -514,7 +538,7 @@ class FlutterClipboard {
     }
 
     final single = await pasteImage();
-    return single == null || single.isEmpty ? const [] : [single];
+    return single == null || single.isEmpty ? const [] : [ClipboardImageData(bytes: single)];
   }
 
   /// Whether the clipboard is currently holding an image.
